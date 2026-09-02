@@ -36,10 +36,10 @@ public class MainActivity extends Activity {
     private static final String UPDATE_URL = "https://infra.somoseira.com/api/display/app/latest";
     private static final long UPDATE_CHECK_MS = 6L * 60L * 60L * 1000L;
     private long downloadId = -1L;
+    private boolean updateCheckScheduled = false;
     private final Runnable updateLoop = new Runnable() {
         @Override public void run() {
-            checkForUpdate(false);
-            handler.postDelayed(this, UPDATE_CHECK_MS);
+            safeCheckForUpdate();
         }
     };
     private WebView webView;
@@ -108,6 +108,15 @@ public class MainActivity extends Activity {
             public void onPageFinished(WebView view, String url) {
                 handler.removeCallbacks(retry);
                 immersive();
+
+                // Do not touch startup. Only check updates after the real Eira
+                // dashboard has loaded successfully and the app is stable.
+                if (!updateCheckScheduled
+                        && url != null
+                        && url.startsWith("https://infra.somoseira.com/display")) {
+                    updateCheckScheduled = true;
+                    handler.postDelayed(() -> safeCheckForUpdate(), 30000);
+                }
             }
 
             @Override
@@ -138,6 +147,14 @@ public class MainActivity extends Activity {
         webView.loadDataWithBaseURL(null, html, "text/html", "UTF-8", null);
     }
 
+
+    private void safeCheckForUpdate() {
+        try {
+            checkForUpdate(false);
+        } catch (Throwable ignored) {
+            // Update failures must NEVER bring down Eira Display.
+        }
+    }
 
     private void checkForUpdate(boolean manual) {
         new Thread(() -> {
@@ -205,6 +222,17 @@ public class MainActivity extends Activity {
 
     private void downloadUpdate(String apkUrl) {
         try {
+            // Register the receiver only when an update download actually starts.
+            IntentFilter filter = new IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE);
+            try {
+                if (android.os.Build.VERSION.SDK_INT >= 33) {
+                    registerReceiver(downloadReceiver, filter, Context.RECEIVER_NOT_EXPORTED);
+                } else {
+                    registerReceiver(downloadReceiver, filter);
+                }
+            } catch (Throwable ignored) {
+                // Receiver registration failure must not crash the dashboard.
+            }
             DownloadManager.Request req = new DownloadManager.Request(Uri.parse(apkUrl));
             req.setTitle("Actualizando Eira Display");
             req.setDescription("Descargando nueva versión…");
@@ -285,6 +313,7 @@ public class MainActivity extends Activity {
     protected void onDestroy() {
         handler.removeCallbacks(updateLoop);
         handler.removeCallbacksAndMessages(null);
+        try { unregisterReceiver(downloadReceiver); } catch (Throwable ignored) {}
         if (webView != null) {
             webView.destroy();
             webView = null;
