@@ -77,14 +77,6 @@ public class MainActivity extends Activity {
         );
         immersive();
 
-        IntentFilter filter = new IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE);
-        if (android.os.Build.VERSION.SDK_INT >= 33) {
-            registerReceiver(downloadReceiver, filter, Context.RECEIVER_NOT_EXPORTED);
-        } else {
-            registerReceiver(downloadReceiver, filter);
-        }
-        handler.postDelayed(updateLoop, 2500);
-
         webView = new WebView(this);
         setContentView(webView);
 
@@ -293,7 +285,6 @@ public class MainActivity extends Activity {
     protected void onDestroy() {
         handler.removeCallbacks(updateLoop);
         handler.removeCallbacksAndMessages(null);
-        try { unregisterReceiver(downloadReceiver); } catch (Exception ignored) {}
         if (webView != null) {
             webView.destroy();
             webView = null;
